@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1740125415865,
+      "tag": "0000_tiny_marvel_zombies",
+      "breakpoints": true
+    }
+  ]
+}

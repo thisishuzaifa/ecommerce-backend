@@ -134,3 +134,10 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+
+# drizzle and db files
+sqlite.db
+drizzle/
+
+# sqlite.db
+sqlite.db

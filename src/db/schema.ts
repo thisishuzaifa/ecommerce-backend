@@ -2,14 +2,16 @@ import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 
 export const users = sqliteTable("users", {
-  id: integer("id").primaryKey(),
-  email: text("email").notNull().unique(),
-  passwordHash: text("password_hash").notNull(),
-  fullName: text("full_name"),
-  role: text("role").notNull().default("customer"),
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .default(sql`CURRENT_TIMESTAMP`),
+  id: integer("id").primaryKey().autoIncrement(),
+  email: text("email").unique().notNull(),
+  password: text("password"),  // Make nullable for social login
+  name: text("name").notNull(),
+  role: text("role").default("customer"), // can be 'admin' or 'customer'
+  emailVerified: integer("email_verified", { mode: "boolean" }).default(false),
+  provider: text("provider").default("email"),
+  providerId: text("provider_id"),
+  createdAt: integer("created_at").default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: integer("updated_at").default(sql`CURRENT_TIMESTAMP`),
 });
 
 export const products = sqliteTable("products", {
@@ -27,7 +29,8 @@ export const products = sqliteTable("products", {
     .default(sql`CURRENT_TIMESTAMP`),
 });
 
-export const categories = sqliteTable("categories", {
+type CategoriesTable = typeof categories;
+export const categories: CategoriesTable = sqliteTable("categories", {
   id: integer("id").primaryKey(),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),

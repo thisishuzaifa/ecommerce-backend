@@ -110,14 +110,164 @@ The API uses standard HTTP status codes and returns errors in the following form
 - `npm run migrate` - Apply database migrations
 - `npm run format` - Format code with Prettier
 
-## Contributing
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
 
 ## License
 
 ISC
+
+## Frontend Integration Guide
+
+### Setting Up Frontend with React
+
+1. Create your React project in a separate directory:
+   ```bash
+   npx create-react-app ecommerce-frontend
+   cd ecommerce-frontend
+   ```
+
+2. Configure API Base URL in your React app:
+   ```javascript
+   // src/config.js
+   export const API_BASE_URL = process.env.NODE_ENV === 'production' 
+     ? 'http://your-domain.com/api' 
+     : 'http://localhost:3000/api';
+   ```
+
+3. Example API service setup:
+   ```javascript
+   // src/services/api.js
+   import { API_BASE_URL } from '../config';
+
+   export const api = {
+     async get(endpoint) {
+       const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+         headers: {
+           'Authorization': `Bearer ${localStorage.getItem('token')}`,
+         },
+       });
+       return response.json();
+     },
+
+     async post(endpoint, data) {
+       const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+         method: 'POST',
+         headers: {
+           'Content-Type': 'application/json',
+           'Authorization': `Bearer ${localStorage.getItem('token')}`,
+         },
+         body: JSON.stringify(data),
+       });
+       return response.json();
+     },
+     // Add other methods (PUT, DELETE) as needed
+   };
+   ```
+
+### Production Deployment (Linux VPS)
+
+1. Build your React frontend:
+   ```bash
+   cd ecommerce-frontend
+   npm run build
+   ```
+
+2. Install Nginx if not already installed:
+   ```bash
+   sudo apt update
+   sudo apt install nginx
+   ```
+
+3. Create Nginx configuration:
+   ```bash
+   sudo nano /etc/nginx/sites-available/ecommerce
+   ```
+
+   Add this configuration:
+   ```nginx
+   server {
+       listen 80;
+       server_name your-domain.com;
+
+       # Frontend
+       location / {
+           root /var/www/ecommerce-frontend/build;
+           try_files $uri $uri/ /index.html;
+       }
+
+       # Backend API
+       location /api {
+           proxy_pass http://localhost:3000;
+           proxy_http_version 1.1;
+           proxy_set_header Upgrade $http_upgrade;
+           proxy_set_header Connection 'upgrade';
+           proxy_set_header Host $host;
+           proxy_cache_bypass $http_upgrade;
+       }
+   }
+   ```
+
+4. Enable the site and restart Nginx:
+   ```bash
+   sudo ln -s /etc/nginx/sites-available/ecommerce /etc/nginx/sites-enabled/
+   sudo nginx -t
+   sudo systemctl restart nginx
+   ```
+
+5. Deploy frontend build:
+   ```bash
+   sudo mkdir -p /var/www/ecommerce-frontend
+   sudo cp -r build/* /var/www/ecommerce-frontend/
+   ```
+
+6. Set up PM2 for backend (keeps Node.js running):
+   ```bash
+   sudo npm install -g pm2
+   cd /path/to/backend
+   pm2 start npm --name "ecommerce-backend" -- run start
+   pm2 startup
+   pm2 save
+   ```
+
+### Example Frontend Usage
+
+```javascript
+// Example: Fetching products
+import { api } from '../services/api';
+
+const ProductList = () => {
+  const [products, setProducts] = useState([]);
+
+  useEffect(() => {
+    const fetchProducts = async () => {
+      try {
+        const data = await api.get('/products');
+        setProducts(data);
+      } catch (error) {
+        console.error('Failed to fetch products:', error);
+      }
+    };
+    fetchProducts();
+  }, []);
+
+  return (
+    // Your JSX here
+  );
+};
+```
+
+### Common Issues & Solutions
+
+1. **CORS Errors**: If you see CORS errors during development, ensure your backend has CORS enabled for your frontend domain.
+
+2. **API 404 Errors**: Check if your API_BASE_URL is correctly configured and Nginx location blocks are properly set up.
+
+3. **Authentication Issues**: Ensure your JWT token is being properly stored and sent in the Authorization header.
+
+4. **Build not Updating**: Clear your browser cache or add a version query parameter to your assets.
+
+### Development Tips
+
+- Use environment variables for different API URLs in development and production
+- Implement a loading state while waiting for API responses
+- Add error handling for failed API requests
+- Use React Query or SWR for efficient data fetching and caching

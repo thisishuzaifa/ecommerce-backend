@@ -1,11 +1,15 @@
-import { pgTable, text, timestamp, integer, serial, boolean, decimal, json, uuid } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, integer, serial, boolean, decimal, json, uuid, pgEnum, unique, index, check } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { relations } from "drizzle-orm";
+
+export const userRoleEnum = pgEnum('user_role', ['admin', 'customer']);
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   email: text("email").notNull().unique(),
   password: text("password").notNull(),
   name: text("name").notNull(),
-  role: text("role").notNull().default("customer"),
+  role: userRoleEnum("role").notNull().default("customer"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -21,12 +25,23 @@ export const products = pgTable("products", {
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => {
+  return {
+    categoryIdx: index("category_idx").on(table.category),
+    priceIdx: index("price_idx").on(table.price),
+    priceCheck: check("price_check", sql`price >= 0`),
+    stockCheck: check("stock_check", sql`stock >= 0`),
+  };
 });
+
+export const orderStatusEnum = pgEnum('order_status', ['pending', 'processing', 'completed', 'cancelled']);
 
 export const orders = pgTable("orders", {
   id: uuid("id").primaryKey().defaultRandom(),
-  userId: integer("user_id").references(() => users.id),
-  status: text("status").notNull().default("pending"),
+  userId: integer("user_id")
+    .references(() => users.id, { onDelete: "cascade" })
+    .notNull(),
+  status: orderStatusEnum("status").notNull().default("pending"),
   total: decimal("total", { precision: 10, scale: 2 }).notNull(),
   shippingAddress: json("shipping_address").$type<{
     street: string;
@@ -34,28 +49,61 @@ export const orders = pgTable("orders", {
     state: string;
     zipCode: string;
     country: string;
-  }>(),
+  }>().notNull(),
+  statusUpdatedAt: timestamp("status_updated_at").defaultNow(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => {
+  return {
+    statusIdx: index("status_idx").on(table.status),
+    userIdIdx: index("user_id_idx").on(table.userId),
+  };
 });
 
 export const orderItems = pgTable("order_items", {
   id: serial("id").primaryKey(),
-  orderId: uuid("order_id").references(() => orders.id),
-  productId: integer("product_id").references(() => products.id),
+  orderId: uuid("order_id")
+    .references(() => orders.id, { onDelete: "cascade" })
+    .notNull(),
+  productId: integer("product_id")
+    .references(() => products.id, { onDelete: "restrict" })
+    .notNull(),
   quantity: integer("quantity").notNull(),
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
+}, (table) => {
+  return {
+    orderIdIdx: index("order_id_idx").on(table.orderId),
+    productIdIdx: index("product_id_idx").on(table.productId),
+    quantityCheck: check("quantity_check", sql`quantity > 0`),
+    priceCheck: check("price_check", sql`price >= 0`),
+  };
 });
 
 export const cart = pgTable("cart", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id").references(() => users.id),
-  productId: integer("product_id").references(() => products.id),
+  userId: integer("user_id")
+    .references(() => users.id, { onDelete: "cascade" })
+    .notNull(),
+  productId: integer("product_id")
+    .references(() => products.id, { onDelete: "cascade" })
+    .notNull(),
   quantity: integer("quantity").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => {
+  return {
+    userProductUnique: unique().on(table.userId, table.productId),
+    quantityCheck: check("cart_quantity_check", sql`quantity > 0`),
+  };
 });
+
+export const cartRelations = relations(cart, ({ one }) => ({
+  product: one(products, {
+    fields: [cart.productId],
+    references: [products.id],
+  }),
+}));
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;

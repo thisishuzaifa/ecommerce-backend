@@ -8,5 +8,9 @@ const connectionString = process.env.DATABASE_URL!;
 export const migrationClient = postgres(connectionString, { max: 1 });
 
 // For queries
-const queryClient = postgres(connectionString);
+const queryClient = postgres(connectionString, {
+  max: 10, // maximum pool size
+  idle_timeout: 30, // max idle time for connections
+  connect_timeout: 30, // connection timeout
+});
 export const db = drizzle(queryClient, { schema });

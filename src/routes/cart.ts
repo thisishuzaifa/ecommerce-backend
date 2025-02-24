@@ -1,13 +1,17 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { db } from "../db";
-import { cart, products } from "../db/schema";
+import { cart, products, type Product } from "../db/schema";
 import { eq, and } from "drizzle-orm";
 import { authMiddleware } from "../middleware/auth";
 import { HTTPException } from "hono/http-exception";
 import type { AuthUser } from "../middleware/auth";
 
-const cartRouter = new Hono();
+type Variables = {
+  user: AuthUser;
+};
+
+const cartRouter = new Hono<{ Variables: Variables }>();
 
 const cartItemSchema = z.object({
   productId: z.number().int().positive(),
@@ -83,6 +87,10 @@ cartRouter.post("/", async (c) => {
   }
 });
 
+type CartWithProduct = typeof cart.$inferSelect & {
+  product: typeof products.$inferSelect;
+};
+
 cartRouter.get("/", async (c) => {
   const user = c.get("user") as AuthUser;
 
@@ -91,9 +99,8 @@ cartRouter.get("/", async (c) => {
     with: {
       product: true
     }
-  });
+  }) as CartWithProduct[];
 
-  // Calculate total
   const total = cartItems.reduce((sum, item) => {
     return sum + (Number(item.product.price) * item.quantity);
   }, 0);

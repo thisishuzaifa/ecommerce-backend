@@ -8,7 +8,11 @@ import { HTTPException } from "hono/http-exception";
 import { sendEmail, emailTemplates } from "../services/email";
 import type { AuthUser } from "../middleware/auth";
 
-const ordersRouter = new Hono();
+type Variables = {
+  user: AuthUser;
+};
+
+const ordersRouter = new Hono<{ Variables: Variables }>();
 
 const shippingAddressSchema = z.object({
   street: z.string(),

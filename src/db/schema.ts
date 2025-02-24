@@ -1,76 +1,69 @@
-import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
-import { sql } from "drizzle-orm";
+import { pgTable, text, timestamp, integer, serial, boolean, decimal, json, uuid } from "drizzle-orm/pg-core";
 
-export const users = sqliteTable("users", {
-  id: integer("id").primaryKey().autoIncrement(),
-  email: text("email").unique().notNull(),
-  password: text("password"),  // Make nullable for social login
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  password: text("password").notNull(),
   name: text("name").notNull(),
-  role: text("role").default("customer"), // can be 'admin' or 'customer'
-  emailVerified: integer("email_verified", { mode: "boolean" }).default(false),
-  provider: text("provider").default("email"),
-  providerId: text("provider_id"),
-  createdAt: integer("created_at").default(sql`CURRENT_TIMESTAMP`),
-  updatedAt: integer("updated_at").default(sql`CURRENT_TIMESTAMP`),
+  role: text("role").notNull().default("customer"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const products = sqliteTable("products", {
-  id: integer("id").primaryKey(),
+export const products = pgTable("products", {
+  id: serial("id").primaryKey(),
   name: text("name").notNull(),
-  description: text("description"),
-  price: real("price").notNull(),
-  stockQuantity: integer("stock_quantity").notNull().default(0),
-  active: integer("active", { mode: "boolean" }).notNull().default(true),
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .default(sql`CURRENT_TIMESTAMP`),
-  updatedAt: integer("updated_at", { mode: "timestamp" })
-    .notNull()
-    .default(sql`CURRENT_TIMESTAMP`),
+  description: text("description").notNull(),
+  price: decimal("price", { precision: 10, scale: 2 }).notNull(),
+  stock: integer("stock").notNull().default(0),
+  images: json("images").$type<string[]>().default([]),
+  category: text("category").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-type CategoriesTable = typeof categories;
-export const categories: CategoriesTable = sqliteTable("categories", {
-  id: integer("id").primaryKey(),
-  name: text("name").notNull(),
-  slug: text("slug").notNull().unique(),
-  parentId: integer("parent_id").references(() => categories.id),
-});
-
-export const productCategories = sqliteTable("product_categories", {
-  productId: integer("product_id")
-    .notNull()
-    .references(() => products.id),
-  categoryId: integer("category_id")
-    .notNull()
-    .references(() => categories.id),
-});
-
-export const orders = sqliteTable("orders", {
-  id: integer("id").primaryKey(),
-  userId: integer("user_id")
-    .notNull()
-    .references(() => users.id),
+export const orders = pgTable("orders", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: integer("user_id").references(() => users.id),
   status: text("status").notNull().default("pending"),
-  totalAmount: real("total_amount").notNull(),
-  shippingAddress: text("shipping_address").notNull(),
-  billingAddress: text("billing_address").notNull(),
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .default(sql`CURRENT_TIMESTAMP`),
-  updatedAt: integer("updated_at", { mode: "timestamp" })
-    .notNull()
-    .default(sql`CURRENT_TIMESTAMP`),
+  total: decimal("total", { precision: 10, scale: 2 }).notNull(),
+  shippingAddress: json("shipping_address").$type<{
+    street: string;
+    city: string;
+    state: string;
+    zipCode: string;
+    country: string;
+  }>(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const orderItems = sqliteTable("order_items", {
-  id: integer("id").primaryKey(),
-  orderId: integer("order_id")
-    .notNull()
-    .references(() => orders.id),
-  productId: integer("product_id")
-    .notNull()
-    .references(() => products.id),
+export const orderItems = pgTable("order_items", {
+  id: serial("id").primaryKey(),
+  orderId: uuid("order_id").references(() => orders.id),
+  productId: integer("product_id").references(() => products.id),
   quantity: integer("quantity").notNull(),
-  priceAtTime: real("price_at_time").notNull(),
+  price: decimal("price", { precision: 10, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
 });
+
+export const cart = pgTable("cart", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id),
+  productId: integer("product_id").references(() => products.id),
+  quantity: integer("quantity").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type User = typeof users.$inferSelect;
+export type NewUser = typeof users.$inferInsert;
+export type Product = typeof products.$inferSelect;
+export type NewProduct = typeof products.$inferInsert;
+export type Order = typeof orders.$inferSelect;
+export type NewOrder = typeof orders.$inferInsert;
+export type OrderItem = typeof orderItems.$inferSelect;
+export type NewOrderItem = typeof orderItems.$inferInsert;
+export type Cart = typeof cart.$inferSelect;
+export type NewCart = typeof cart.$inferInsert;

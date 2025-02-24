@@ -1,11 +1,12 @@
 import type { Config } from "drizzle-kit";
+import * as dotenv from "dotenv";
+dotenv.config();
 
 export default {
   schema: "./src/db/schema.ts",
-  out: "./drizzle",
-  dialect: "sqlite",
+  out: "./src/db/migrations",
+  driver: "pg",
   dbCredentials: {
-    url: "sqlite.db",
+    connectionString: process.env.DATABASE_URL!,
   },
 } satisfies Config;
-

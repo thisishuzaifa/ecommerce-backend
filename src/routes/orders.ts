@@ -7,10 +7,28 @@ import { authMiddleware } from "../middleware/auth";
 import { HTTPException } from "hono/http-exception";
 import { sendEmail, emailTemplates } from "../services/email";
 import type { AuthUser } from "../middleware/auth";
+import type { Context, Next } from "hono";
 
 type Variables = {
   user: AuthUser;
+  validatedBody: CreateOrderInput;
 };
+
+type JSONResponse = {
+  items?: unknown[];
+  order?: unknown;
+  message?: string;
+  total?: number;
+  page?: number;
+  limit?: number;
+  totalPages?: number;
+  totalCount?: number;
+};
+
+interface CacheEntry {
+  data: JSONResponse;
+  timestamp: number;
+}
 
 const ordersRouter = new Hono<{ Variables: Variables }>();
 
@@ -32,96 +50,135 @@ const createOrderSchema = z.object({
   shippingAddress: shippingAddressSchema,
 });
 
+type CreateOrderInput = z.infer<typeof createOrderSchema>;
+
 // Protected routes
 ordersRouter.use("/*", authMiddleware);
 
+// Input validation middleware
+const validateInput = async (c: Context<{ Variables: Variables }>, next: Next) => {
+  try {
+    if (c.req.method === "POST") {
+      const body = await c.req.json();
+      const validatedData = createOrderSchema.parse(body);
+      c.set('validatedBody', validatedData);
+    }
+    return await next();
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw new HTTPException(400, { 
+        message: `Invalid input data: ${error.errors[0].message}` 
+      });
+    }
+    throw new HTTPException(400, { message: "Invalid input data" });
+  }
+};
+
+ordersRouter.use("/*", validateInput);
+
+// Cache middleware for GET requests
+const cache = new Map<string, CacheEntry>();
+const CACHE_TTL = 300000; // 5 minutes
+
+const cacheMiddleware = async (c: Context<{ Variables: Variables }>, next: Next) => {
+  if (c.req.method !== "GET") return await next();
+  
+  const key = `${c.req.url}-${c.get("user").id}`;
+  const cached = cache.get(key);
+  
+  if (cached && cached.timestamp > Date.now() - CACHE_TTL) {
+    return c.json(cached.data);
+  }
+  
+  await next();
+
+  if (c.res.status === 200) {
+    const data = await c.res.json() as JSONResponse;
+    cache.set(key, { 
+      data, 
+      timestamp: Date.now() 
+    });
+  }
+};
+
+ordersRouter.use("/*", cacheMiddleware);
+
 ordersRouter.post("/", async (c) => {
-  const user = c.get("user") as AuthUser;
+  const user = c.get("user");
   
   try {
-    const body = await c.req.json();
-    const { items, shippingAddress } = createOrderSchema.parse(body);
+    const { items, shippingAddress } = c.get('validatedBody') as CreateOrderInput;
 
-    // Validate products and calculate total
-    let total = 0;
-    const productIds = items.map(item => item.productId);
-    
-    const availableProducts = await db.select()
-      .from(products)
-      .where(
-        and(
-          eq(products.isActive, true),
-          sql`${products.id} IN (${productIds.join(',')})`
-        )
-      );
+    // Start a database transaction
+    return await db.transaction(async (tx) => {
+      // Convert productIds to a proper SQL array
+      const productIds = items.map(item => item.productId);
+      
+      const availableProducts = await tx.select()
+        .from(products)
+        .where(sql`${products.id} = ANY(ARRAY[${productIds.join(',')}]::int[])`);
 
-    if (availableProducts.length !== items.length) {
-      throw new HTTPException(400, { message: "One or more products are unavailable" });
-    }
-
-    // Check stock and calculate total
-    const productMap = new Map(availableProducts.map(p => [p.id, p]));
-    for (const item of items) {
-      const product = productMap.get(item.productId);
-      if (!product) continue;
-
-      if (product.stock < item.quantity) {
-        throw new HTTPException(400, { message: `Insufficient stock for product: ${product.name}` });
+      if (availableProducts.length !== productIds.length) {
+        throw new HTTPException(400, { message: "One or more products not found" });
       }
 
-      total += Number(product.price) * item.quantity;
-    }
+      // Create a Map for O(1) product lookups
+      const productMap = new Map(availableProducts.map(p => [p.id, p]));
 
-    // Create order and order items
-    const [order] = await db.insert(orders)
-      .values({
-        userId: user.id,
-        total: total.toFixed(2),
-        shippingAddress,
-      })
-      .returning();
+      // Validate stock and calculate total in one pass
+      let total = 0;
+      for (const item of items) {
+        const product = productMap.get(item.productId);
+        if (!product || product.stock < item.quantity) {
+          throw new HTTPException(400, { message: "Insufficient stock" });
+        }
+        total += Number(product.price) * item.quantity;
+      }
 
-    // Create order items and update stock
-    for (const item of items) {
-      const product = productMap.get(item.productId)!;
-      
+      // Create order
+      const [order] = await tx.insert(orders)
+        .values([{
+          userId: user.id,
+          total: total.toString(),
+          status: "pending",
+          shippingAddress: shippingAddress,
+        }])
+        .returning();
+
+      // Create order items and update stock in parallel
       await Promise.all([
-        // Create order item
-        db.insert(orderItems)
-          .values({
+        tx.insert(orderItems).values(
+          items.map(item => ({
             orderId: order.id,
             productId: item.productId,
             quantity: item.quantity,
-            price: product.price,
-          }),
-        
-        // Update product stock
-        db.update(products)
-          .set({ 
-            stock: sql`${products.stock} - ${item.quantity}`,
-            updatedAt: new Date()
-          })
-          .where(eq(products.id, item.productId))
+            price: productMap.get(item.productId)!.price.toString(),
+          }))
+        ),
+        ...items.map(item =>
+          tx.update(products)
+            .set({ stock: sql`${products.stock} - ${item.quantity}` })
+            .where(eq(products.id, item.productId))
+        )
       ]);
-    }
 
-    // Send order confirmation email
-    await sendEmail({
-      to: user.email,
-      ...emailTemplates.orderConfirmation(order.id, total)
+      // Send order confirmation email
+      await sendEmail({
+        to: user.email,
+        ...emailTemplates.orderConfirmation(order.id, total)
+      });
+
+      return c.json({ order }, 201);
     });
-
-    return c.json(order);
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      throw new HTTPException(400, { message: error.errors[0].message });
-    }
-    throw error;
+    if (error instanceof HTTPException) throw error;
+    console.error('Order creation error:', error);
+    throw new HTTPException(500, { message: "Failed to create order" });
   }
 });
 
 ordersRouter.get("/", async (c) => {
-  const user = c.get("user") as AuthUser;
+  const user = c.get("user");
   const page = Number(c.req.query("page")) || 1;
   const limit = Number(c.req.query("limit")) || 10;
   const offset = (page - 1) * limit;
@@ -149,7 +206,7 @@ ordersRouter.get("/", async (c) => {
 });
 
 ordersRouter.get("/:id", async (c) => {
-  const user = c.get("user") as AuthUser;
+  const user = c.get("user");
   const orderId = c.req.param("id");
 
   const order = await db.query.orders.findFirst({

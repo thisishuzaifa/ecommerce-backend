@@ -56,37 +56,36 @@ app.use("*", async (c, next) => {
   return await next();
 });
 
+// Mount routes
+app.route("/auth", authRoutes);
+app.route("/products", productRoutes);
+app.route("/orders", orderRoutes);
+app.route("/cart", cartRoutes);
+
 // Error handling
 app.onError((err, c) => {
   console.error(`[${new Date().toISOString()}] Error:`, err);
   
   if (err instanceof HTTPException) {
-    return c.json({
-      message: err.message,
-      status: err.status,
-    }, err.status);
+    return c.json({ error: err.message }, err.status);
   }
-
-  return c.json({
-    message: "Internal Server Error",
-    status: 500,
-  }, 500);
+  
+  if (err instanceof Error) {
+    return c.json({ error: err.message }, 500);
+  }
+  
+  return c.json({ error: "Internal Server Error" }, 500);
 });
 
-// Health check
-app.get("/", (c) => c.json({ status: "ok", timestamp: new Date().toISOString() }));
+// Health check endpoint
+app.get("/health", (c) => {
+  return c.json({ status: "ok" });
+});
 
-// Routes
-app.route("/api/auth", authRoutes);
-app.route("/api/products", productRoutes);
-app.route("/api/orders", orderRoutes);
-app.route("/api/cart", cartRoutes);
-
-// Start server
-const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+const port = process.env.PORT || 3000;
 console.log(`Server is starting on port ${port}...`);
 
 serve({
   fetch: app.fetch,
-  port,
+  port: Number(port),
 });

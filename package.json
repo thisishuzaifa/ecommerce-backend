@@ -7,6 +7,7 @@
     "build": "tsc",
     "generate": "drizzle-kit generate:pg",
     "migrate": "tsx src/db/migrate.ts",
+    "seed": "tsx src/db/seed.ts",
     "studio": "drizzle-kit studio",
     "format": "prettier --write ."
   },

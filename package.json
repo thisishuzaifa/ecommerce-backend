@@ -9,7 +9,10 @@
     "migrate": "tsx src/db/migrate.ts",
     "seed": "tsx src/db/seed.ts",
     "studio": "drizzle-kit studio",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage"
   },
   "keywords": [],
   "author": "",
@@ -28,12 +31,18 @@
   },
   "devDependencies": {
     "@types/bcrypt": "^5.0.2",
+    "@types/jest": "^29.5.14",
     "@types/jsonwebtoken": "^9.0.5",
     "@types/node": "^20.11.5",
     "@types/pg": "^8.11.0",
+    "@types/supertest": "^6.0.2",
     "dotenv": "^16.3.1",
     "drizzle-kit": "^0.20.14",
+    "jest": "^29.7.0",
     "prettier": "^3.2.4",
+    "supertest": "^7.0.0",
+    "ts-jest": "^29.2.6",
+    "ts-node": "^10.9.2",
     "tsx": "^4.7.0",
     "typescript": "^5.3.3"
   }

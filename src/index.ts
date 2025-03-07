@@ -14,6 +14,7 @@ import authRoutes from "./routes/auth";
 import productRoutes from "./routes/products";
 import orderRoutes from "./routes/orders";
 import cartRoutes from "./routes/cart";
+import imagesRouter from "./routes/images";
 
 const app = new Hono();
 
@@ -61,6 +62,7 @@ app.route("/auth", authRoutes);
 app.route("/products", productRoutes);
 app.route("/orders", orderRoutes);
 app.route("/cart", cartRoutes);
+app.route("/images", imagesRouter);
 
 // Error handling
 app.onError((err, c) => {
@@ -89,3 +91,5 @@ serve({
   fetch: app.fetch,
   port: Number(port),
 });
+
+export default app;

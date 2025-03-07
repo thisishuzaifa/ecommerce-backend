@@ -5,6 +5,7 @@ import { products } from "../db/schema";
 import { eq, and, desc, asc, sql } from "drizzle-orm";
 import { authMiddleware, adminMiddleware } from "../middleware/auth";
 import { HTTPException } from "hono/http-exception";
+import { deleteImage } from "../services/storage";
 
 const productsRouter = new Hono();
 
@@ -14,7 +15,7 @@ const productSchema = z.object({
   price: z.number().positive().transform(val => val.toFixed(2)),
   stock: z.number().int().min(0),
   category: z.string().min(1),
-  images: z.array(z.string()).optional(),
+  images: z.array(z.string().url()).optional(),
 });
 
 // Public routes
@@ -105,6 +106,34 @@ productsRouter.put("/admin/:id", async (c) => {
     const body = await c.req.json();
     const productData = productSchema.partial().parse(body);
 
+    // Get the existing product to handle image updates
+    const existingProduct = await db.query.products.findFirst({
+      where: eq(products.id, id),
+    });
+
+    if (!existingProduct) {
+      throw new HTTPException(404, { message: "Product not found" });
+    }
+
+    // Handle image deletion for removed images
+    if (productData.images && existingProduct.images) {
+      const oldImages = existingProduct.images as string[];
+      const newImages = productData.images as string[];
+      
+      // Find images that were removed
+      const removedImages = oldImages.filter(img => !newImages.includes(img));
+      
+      // Delete removed images from storage
+      for (const imageUrl of removedImages) {
+        try {
+          await deleteImage(imageUrl);
+        } catch (error) {
+          console.error(`Failed to delete image ${imageUrl}:`, error);
+          // Continue with the update even if image deletion fails
+        }
+      }
+    }
+
     const [product] = await db.update(products)
       .set({ 
         ...productData,
@@ -112,10 +141,6 @@ productsRouter.put("/admin/:id", async (c) => {
       })
       .where(eq(products.id, id))
       .returning();
-
-    if (!product) {
-      throw new HTTPException(404, { message: "Product not found" });
-    }
 
     return c.json(product);
   } catch (error) {
@@ -129,14 +154,32 @@ productsRouter.put("/admin/:id", async (c) => {
 productsRouter.delete("/admin/:id", async (c) => {
   const id = Number(c.req.param("id"));
 
-  const [product] = await db.update(products)
-    .set({ isActive: false, updatedAt: new Date() })
-    .where(eq(products.id, id))
-    .returning();
+  // Get the product to delete its images
+  const product = await db.query.products.findFirst({
+    where: eq(products.id, id),
+  });
 
   if (!product) {
     throw new HTTPException(404, { message: "Product not found" });
   }
+
+  // Delete all product images from storage
+  if (product.images && Array.isArray(product.images)) {
+    for (const imageUrl of product.images) {
+      try {
+        await deleteImage(imageUrl);
+      } catch (error) {
+        console.error(`Failed to delete image ${imageUrl}:`, error);
+        // Continue with the deletion even if image deletion fails
+      }
+    }
+  }
+
+  // Soft delete the product
+  const [deletedProduct] = await db.update(products)
+    .set({ isActive: false, updatedAt: new Date() })
+    .where(eq(products.id, id))
+    .returning();
 
   return c.json({ message: "Product deleted successfully" });
 });
